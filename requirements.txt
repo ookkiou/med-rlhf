@@ -1,0 +1,25 @@
+# Core ML Framework
+torch>=2.2
+transformers>=4.42
+peft>=0.11
+trl>=0.9
+bitsandbytes>=0.43
+accelerate>=0.30
+datasets>=2.19
+
+# Inference
+vllm>=0.4
+sentencepiece
+protobuf
+
+# Evaluation
+lm_eval
+
+# Logging & Tracking
+wandb
+
+# Utilities
+numpy
+pandas
+tqdm
+scikit-learn

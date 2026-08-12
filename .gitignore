@@ -1,0 +1,70 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# === Virtual Environments ===
+.venv/
+venv/
+env/
+ENV/
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Environment & Secrets ===
+.env
+.env.local
+*.key
+
+# === Model Weights & Checkpoints ===
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.gguf
+*.ckpt
+*.h5
+out/
+outputs/
+checkpoints/
+wandb/
+runs/
+logs/
+*.ckpt
+
+# === Large Data Files (保留脚本，忽略数据本身) ===
+data/*.jsonl
+data/*.json
+data/*.csv
+data/*.tsv
+data/*.parquet
+
+# === Evaluation Raw Results (保留对比表 .md，忽略原始大 JSON) ===
+results/*.json
+
+# === Plan Documents (不公开方案) ===
+plan/
+
+# === Jupyter ===
+.ipynb_checkpoints/
+*.ipynb
+
+# === Misc ===
+*.log
+cache/
+.cache/
