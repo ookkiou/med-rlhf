@@ -71,7 +71,8 @@ def load_cmb(split="val"):
     from datasets import load_dataset
 
     print(f"加载 CMB-Exam 数据集 (split={split})...")
-    ds = load_dataset("FreedomIntelligence/CMB", "exam")
+    # 注意: config 名是 "CMB-Exam" (不是 "exam"), 另一个是 "CMB-Clin"
+    ds = load_dataset("FreedomIntelligence/CMB", "CMB-Exam")
 
     # 尝试请求的 split, 回退到 val
     if split in ds:
