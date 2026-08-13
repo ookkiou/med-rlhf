@@ -67,24 +67,47 @@ def load_cmb(split="val"):
             "question_type": "单项选择题",
             "option": {"A": "...", "B": "...", "C": "...", "D": "...", "E": "..."}
         }
+
+    注意: 直接用 load_dataset 在 datasets 5.x 下会报 schema 校验错误,
+    这里改用 hf_hub_download 下载原始 JSON 手动解析, 更稳定。
     """
-    from datasets import load_dataset
+    from huggingface_hub import hf_hub_download
 
     print(f"加载 CMB-Exam 数据集 (split={split})...")
-    # 注意: config 名是 "CMB-Exam" (不是 "exam"), 另一个是 "CMB-Clin"
-    ds = load_dataset("FreedomIntelligence/CMB", "CMB-Exam")
 
-    # 尝试请求的 split, 回退到 val
-    if split in ds:
-        data = ds[split]
-    elif "val" in ds:
+    # CMB-Exam 原始文件名映射
+    file_map = {
+        "val": "CMB-Exam/CMB-val-merge.json",
+        "test": "CMB-Exam/CMB-test-choice-question-merge.json",
+        "train": "CMB-Exam/CMB-train-merge.json",
+    }
+    if split not in file_map:
         print(f"  split '{split}' 不存在, 使用 'val' (有答案的评测集)")
-        data = ds["val"]
-    else:
-        # 取最后一个 split
-        split_names = list(ds.keys())
-        print(f"  split '{split}' 不存在, 使用 '{split_names[-1]}'")
-        data = ds[split_names[-1]]
+        split = "val"
+    file_name = file_map[split]
+
+    # 下载原始 JSON (自动缓存到 HF_HOME)
+    local_path = hf_hub_download(
+        repo_id="FreedomIntelligence/CMB",
+        filename=file_name,
+        repo_type="dataset",
+    )
+    print(f"  数据文件: {local_path}")
+
+    with open(local_path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    # 标准化: option 字段可能是字符串形式的 JSON, 解析成 dict
+    data = []
+    for item in raw:
+        item = dict(item)
+        opt = item.get("option")
+        if isinstance(opt, str):
+            try:
+                item["option"] = json.loads(opt)
+            except Exception:
+                item["option"] = {}
+        data.append(item)
 
     print(f"  加载 {len(data)} 条数据")
     return data
