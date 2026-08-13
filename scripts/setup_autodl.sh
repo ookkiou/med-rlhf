@@ -107,7 +107,7 @@ pip install "peft>=0.11" "trl>=0.12" "bitsandbytes>=0.43" "accelerate>=0.30"
 pip install "datasets>=2.19" "huggingface_hub>=0.23"
 pip install "vllm>=0.6.0"
 pip install sentencepiece protobuf
-pip install wandb
+pip install swanlab
 pip install numpy pandas tqdm scikit-learn
 
 echo "  ✓ 依赖安装完成"
@@ -124,12 +124,13 @@ echo "    2. 登录 HuggingFace 账号, 点击 'Agree and access repository'"
 echo "    3. 获取 Access Token: https://huggingface.co/settings/tokens"
 echo ""
 
-# 检查是否已登录
-if python -c "from huggingface_hub import HfFolder; HfFolder.load_token()" 2>/dev/null; then
+# 检查是否已登录 (新版 huggingface_hub 用 get_token)
+if python -c "from huggingface_hub import get_token; assert get_token()" 2>/dev/null; then
     echo "  ✓ 已检测到 HuggingFace token"
 else
     echo "  请输入 HuggingFace Access Token (或按 Ctrl+C 跳过, 稍后手动登录):"
-    huggingface-cli login
+    # 新版 CLI 是 hf, 旧版 huggingface-cli 已废弃
+    hf auth login
 fi
 
 # ------------------------------------------------------------

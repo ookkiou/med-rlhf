@@ -77,7 +77,9 @@ def check_gpu():
             print("  修复: pip install torch --index-url https://download.pytorch.org/whl/cu121")
             return False
         gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+        # 新版 torch (2.13+) 把 total_mem 改名为 total_memory, 兼容两者
+        props = torch.cuda.get_device_properties(0)
+        gpu_mem = getattr(props, "total_memory", getattr(props, "total_mem", 0)) / (1024**3)
         print(f"  ✓ GPU: {gpu_name}")
         print(f"  ✓ 显存: {gpu_mem:.1f} GB")
         if gpu_mem < 20:

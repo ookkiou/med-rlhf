@@ -19,7 +19,8 @@ protobuf
 lm_eval
 
 # Logging & Tracking
-wandb
+# SwanLab (国产 WandB 替代, 国内访问更快, transformers>=4.50 原生集成)
+swanlab
 
 # Utilities
 numpy
