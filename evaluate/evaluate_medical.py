@@ -121,12 +121,19 @@ def load_cmexam(data_path=None):
     数据下载: https://github.com/williamliujl/CMExam
 
     支持格式:
+        - CSV (原始格式: train.csv / val.csv / test_with_annotations.csv)
         - JSON 数组, 每条包含 question, answer, options
         - JSONL, 每行一条
+
+    CSV 字段 (CMExam 原始):
+        Question, Options (JSON字符串), Answer, Explanation, ...
     """
     if data_path is None:
-        # 尝试多个可能的路径
+        # 尝试多个可能的路径 (优先 CSV, 兼容 JSON)
         candidates = [
+            PROJECT_ROOT / "data" / "cmexam" / "val.csv",
+            PROJECT_ROOT / "data" / "cmexam" / "test_with_annotations.csv",
+            PROJECT_ROOT / "data" / "cmexam" / "test.csv",
             PROJECT_ROOT / "data" / "cmexam" / "test.json",
             PROJECT_ROOT / "data" / "cmexam" / "val.json",
             PROJECT_ROOT / "data" / "cmexam" / "test.jsonl",
@@ -136,7 +143,7 @@ def load_cmexam(data_path=None):
                 data_path = p
                 break
         else:
-            data_path = PROJECT_ROOT / "data" / "cmexam" / "test.json"
+            data_path = PROJECT_ROOT / "data" / "cmexam" / "val.csv"
 
     data_path = Path(data_path)
     if not data_path.exists():
@@ -149,7 +156,39 @@ def load_cmexam(data_path=None):
     print(f"加载 CMExam 数据: {data_path}")
 
     data = []
-    if data_path.suffix == ".jsonl":
+    if data_path.suffix == ".csv":
+        import csv
+
+        with open(data_path, "r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # CMExam CSV 字段名首字母大写或小写不一, 兼容处理
+                question = row.get("Question") or row.get("question") or ""
+                answer = row.get("Answer") or row.get("answer") or ""
+                options_raw = row.get("Options") or row.get("options") or ""
+
+                # Options 在 CSV 里是 JSON 字符串, 如 {"A": "...", "B": "..."}
+                # 也可能是用 | 分隔的纯文本
+                if options_raw:
+                    try:
+                        options = json.loads(options_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        # 尝试按 | 或换行分割
+                        parts = options_raw.split("|") if "|" in options_raw else options_raw.split("\n")
+                        options = {}
+                        letters = "ABCDE"
+                        for i, part in enumerate(parts):
+                            if i < len(letters):
+                                options[letters[i]] = part.strip()
+                else:
+                    options = {}
+
+                data.append({
+                    "question": question,
+                    "answer": answer.strip().upper() if answer else "",
+                    "options": options,
+                })
+    elif data_path.suffix == ".jsonl":
         with open(data_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -231,25 +270,49 @@ def build_cmb_prompt(item):
     return prompt
 
 
+# CMExam few-shot 示例
+CMEXAM_FEWSHOT_EXAMPLES = """以下是中国国家医师考试中的一道单项选择题,不需要做任何分析和解释,直接输出答案选项。
+患者,男,60岁,突发胸骨后压榨性疼痛3小时,含服硝酸甘油不缓解,心电图示V1-V4导联ST段弓背向上抬高。最可能的诊断是?
+A. 急性心肌梗死
+B. 稳定型心绞痛
+C. 主动脉夹层
+D. 急性肺栓塞
+答案: A
+
+以下是中国国家医师考试中的一道单项选择题,不需要做任何分析和解释,直接输出答案选项。
+患者,女,30岁,尿频、尿急、尿痛2天,伴发热,尿常规示白细胞满视野,亚硝酸盐阳性。最可能的诊断是?
+A. 急性肾小球肾炎
+B. 急性膀胱炎
+C. 肾结石
+D. 肾病综合征
+答案: B
+
+"""
+
+
 def build_cmexam_prompt(item):
     """构造 CMExam 评测 prompt"""
     item = dict(item) if hasattr(item, "items") else item
     question = item.get("question", "")
 
-    if "options" in item:
+    if "options" in item and item["options"]:
         options = item["options"]
         option_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
         prompt = (
-            f"以下是中国国家医师考试的一道选择题,"
+            CMEXAM_FEWSHOT_EXAMPLES
+            + f"以下是中国国家医师考试中的一道选择题,"
             f"不需要做任何分析和解释,直接输出答案选项。\n"
             f"{question}\n"
             f"{option_text}\n"
+            f"答案: "
         )
     else:
         prompt = (
-            f"以下是中国国家医师考试的一道选择题,"
+            CMEXAM_FEWSHOT_EXAMPLES
+            + f"以下是中国国家医师考试中的一道选择题,"
             f"不需要做任何分析和解释,直接输出答案选项。\n"
             f"{question}\n"
+            f"答案: "
         )
 
     return prompt

@@ -143,31 +143,29 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CMEXAM_DIR="$PROJECT_ROOT/data/cmexam"
 mkdir -p "$CMEXAM_DIR"
 
-if [ -f "$CMEXAM_DIR/test.json" ]; then
+if [ -f "$CMEXAM_DIR/val.csv" ] || [ -f "$CMEXAM_DIR/test_with_annotations.csv" ]; then
     echo "  ✓ CMExam 数据已存在"
 else
     echo "  从 GitHub 下载 CMExam 数据..."
-    # CMExam 数据在 GitHub 仓库的 data 目录
-    # 下载 test 集的 prompt 文件
+    # CMExam 数据在 GitHub 仓库的 data 目录, 格式为 CSV
     cd /tmp
+    rm -rf /tmp/CMExam
     git clone --depth 1 https://github.com/williamliujl/CMExam.git 2>/dev/null || true
 
     if [ -d "/tmp/CMExam/data" ]; then
-        # 查找 test 数据文件
-        TEST_FILE=$(find /tmp/CMExam/data -name "*test*" -name "*.json" -o -name "*test*" -name "*.jsonl" | head -1)
-        if [ -n "$TEST_FILE" ]; then
-            cp "$TEST_FILE" "$CMEXAM_DIR/test.json"
-            echo "  ✓ CMExam 数据已复制到 $CMEXAM_DIR/test.json"
-        else
-            echo "  ⚠ 未找到 CMExam test 文件, 请手动下载"
-            echo "    仓库: https://github.com/williamliujl/CMExam"
-            echo "    放到: $CMEXAM_DIR/test.json"
+        # 复制所有 CSV 文件
+        cp /tmp/CMExam/data/*.csv "$CMEXAM_DIR/" 2>/dev/null || true
+        if [ -f "$CMEXAM_DIR/val.csv" ]; then
+            echo "  ✓ CMExam val.csv 已复制"
+        fi
+        if [ -f "$CMEXAM_DIR/test_with_annotations.csv" ]; then
+            echo "  ✓ CMExam test_with_annotations.csv 已复制"
         fi
         rm -rf /tmp/CMExam
     else
         echo "  ⚠ CMExam 下载失败, 请手动下载"
         echo "    仓库: https://github.com/williamliujl/CMExam"
-        echo "    放到: $CMEXAM_DIR/test.json"
+        echo "    放到: $CMEXAM_DIR/ 目录下"
     fi
 fi
 

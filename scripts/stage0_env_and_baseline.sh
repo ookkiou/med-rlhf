@@ -86,16 +86,26 @@ fi
 # ------------------------------------------------------------
 echo ""
 echo "[Step 4] 基座评测 - CMExam..."
-if [ -f "data/cmexam/test.json" ] || [ -f "data/cmexam/val.json" ]; then
+if [ -f "data/cmexam/val.csv" ] || [ -f "data/cmexam/test_with_annotations.csv" ] || [ -f "data/cmexam/test.csv" ] || [ -f "data/cmexam/test.json" ]; then
+    # 快速测试 100 条
     python evaluate/evaluate_medical.py \
         --model "$MODEL_NAME" \
         --benchmark cmexam \
         --sample-size 100 \
         --out results/baseline_cmexam_test.json
+    echo ""
+    echo "  CMExam 快速测试完成"
+
+    # 全量评测
+    python evaluate/evaluate_medical.py \
+        --model "$MODEL_NAME" \
+        --benchmark cmexam \
+        --out results/baseline_cmexam.json
+    echo "  CMExam 全量评测完成: results/baseline_cmexam.json"
 else
     echo "  ⚠ CMExam 数据未下载, 跳过"
     echo "    下载方法: bash scripts/setup_autodl.sh"
-    echo "    或手动从 https://github.com/williamliujl/CMExam 下载"
+    echo "    或手动从 https://github.com/williamliujl/CMExam 下载 CSV 到 data/cmexam/"
 fi
 
 # ------------------------------------------------------------
