@@ -75,11 +75,11 @@ def load_cmb(split="val"):
 
     print(f"加载 CMB-Exam 数据集 (split={split})...")
 
-    # CMB-Exam 原始文件名映射
+    # CMB-Exam 原始文件名映射 (注意: 文件在 CMB-Exam/<split>/ 子目录下)
     file_map = {
-        "val": "CMB-Exam/CMB-val-merge.json",
-        "test": "CMB-Exam/CMB-test-choice-question-merge.json",
-        "train": "CMB-Exam/CMB-train-merge.json",
+        "val": "CMB-Exam/CMB-val/CMB-val-merge.json",
+        "test": "CMB-Exam/CMB-test/CMB-test-choice-question-merge.json",
+        "train": "CMB-Exam/CMB-train/CMB-train-merge.json",
     }
     if split not in file_map:
         print(f"  split '{split}' 不存在, 使用 'val' (有答案的评测集)")
