@@ -167,6 +167,35 @@ def load_cmexam(data_path=None):
 # Prompt 构造
 # ============================================================
 
+# CMB few-shot 示例 (帮助模型理解输出格式: 单选一个字母, 多选多个字母)
+CMB_FEWSHOT_EXAMPLES = """以下是中国医师考试中的一道单项选择题,不需要做任何分析和解释,直接输出答案选项。
+患者,男,60岁,突发胸骨后压榨性疼痛3小时,含服硝酸甘油不缓解,心电图示V1-V4导联ST段弓背向上抬高。最可能的诊断是?
+A. 急性心肌梗死
+B. 稳定型心绞痛
+C. 主动脉夹层
+D. 急性肺栓塞
+答案: A
+
+以下是中国医师考试中的一道单项选择题,不需要做任何分析和解释,直接输出答案选项。
+患者,女,30岁,尿频、尿急、尿痛2天,伴发热,尿常规示白细胞满视野,亚硝酸盐阳性。最可能的诊断是?
+A. 急性肾小球肾炎
+B. 急性膀胱炎
+C. 肾结石
+D. 肾病综合征
+答案: B
+
+以下是中国医师考试中的一道多项选择题,不需要做任何分析和解释,直接输出答案选项。
+关于高血压降压治疗,下列正确的有?
+A. 合并糖尿病者首选ACEI/ARB
+B. 老年单纯收缩期高血压首选CCB
+C. 合并心力衰竭者禁用β受体阻滞剂
+D. 妊娠期高血压首选ACEI
+E. 高血压急症首选口服短效降压药
+答案: AB
+
+"""
+
+
 def build_cmb_prompt(item):
     """
     构造 CMB-Exam 评测 prompt
@@ -178,6 +207,8 @@ def build_cmb_prompt(item):
         A. {选项A}
         B. {选项B}
         ...
+
+    前面拼接 few-shot 示例, 引导模型输出格式 (单选一个字母, 多选多个字母)。
     """
     item = dict(item) if hasattr(item, "items") else item
     exam_type = item.get("exam_type", "医师考试")
@@ -189,10 +220,12 @@ def build_cmb_prompt(item):
     option_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
 
     prompt = (
-        f"以下是中国{exam_type}中{exam_class}考试的一道{question_type},"
+        CMB_FEWSHOT_EXAMPLES
+        + f"以下是中国{exam_type}中{exam_class}考试的一道{question_type},"
         f"不需要做任何分析和解释,直接输出答案选项。\n"
         f"{question}\n"
         f"{option_text}\n"
+        f"答案: "
     )
 
     return prompt
