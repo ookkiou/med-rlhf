@@ -57,7 +57,7 @@ data/*.parquet
 # === Evaluation Raw Results (保留对比表 .md，忽略原始大 JSON) ===
 results/*.json
 
-# === Plan Documents (不公开方案) ===
+# === Plan Documents ===
 plan/
 
 # === Jupyter ===

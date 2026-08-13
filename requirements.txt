@@ -1,14 +1,17 @@
 # Core ML Framework
+# 注意: Gemma-3 需要 transformers>=4.50.0, 推荐 PyTorch>=2.2.0
 torch>=2.2
-transformers>=4.42
+transformers>=4.50
 peft>=0.11
-trl>=0.9
+trl>=0.12
 bitsandbytes>=0.43
 accelerate>=0.30
 datasets>=2.19
+huggingface_hub>=0.23
 
 # Inference
-vllm>=0.4
+# vLLM >= 0.6.0 支持 Gemma-3 多模态模型
+vllm>=0.6.0
 sentencepiece
 protobuf
 
