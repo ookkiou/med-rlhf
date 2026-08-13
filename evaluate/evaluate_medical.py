@@ -228,32 +228,41 @@ def build_cmexam_prompt(item):
 
 def extract_answer(text, options=None):
     """
-    从模型输出中提取答案选项
+    从模型输出中提取答案选项 (支持多选)
 
     支持多种格式:
         - "A" / "B" / "C" / "D" / "E"
+        - "BCDE" / "A, C, E" / "A C E"
         - "答案是A" / "答案为A" / "答案:A"
         - "选A" / "选择A"
         - "A选项" / "选项A"
         - 开头的 "A." / "A、"
+
+    返回排序去重后的字母字符串, 如 "BCDE" (多选) 或 "B" (单选)。
     """
     valid_options = set(options.keys()) if options else {"A", "B", "C", "D", "E"}
 
-    patterns = [
-        r"答案[是为：:]\s*([A-E])",
-        r"选[择]?\s*([A-E])",
-        r"选项\s*([A-E])",
-        r"([A-E])\s*选项",
-        r"^([A-E])\s*[\.\.、]?",
-        r"\b([A-E])\b",
-    ]
-
-    for pattern in patterns:
+    # 1. 关键词后的字母序列 (最可靠): "答案: BCDE", "选 A, C, E"
+    for pattern in [
+        r"答案[是为：:]\s*([A-E][A-E,\s、，]*)",
+        r"选[择]?\s*([A-E][A-E,\s、，]*)",
+        r"选项\s*([A-E][A-E,\s、，]*)",
+    ]:
         match = re.search(pattern, text)
         if match:
-            answer = match.group(1).upper()
-            if answer in valid_options:
-                return answer
+            letters = [c for c in re.findall(r"[A-E]", match.group(1)) if c in valid_options]
+            if letters:
+                return "".join(sorted(set(letters)))
+
+    # 2. 独立字母 token: "B. 内容", "A, C, E"
+    letters = [c for c in re.findall(r"\b[A-E]\b", text) if c in valid_options]
+    if letters:
+        return "".join(sorted(set(letters)))
+
+    # 3. 连续字母串: "BCDE"
+    letters = [c for c in re.findall(r"[A-E]", text) if c in valid_options]
+    if letters:
+        return "".join(sorted(set(letters)))
 
     return ""
 
@@ -389,7 +398,8 @@ def evaluate(
         options = item.get("option", item.get("options", {}))
 
         pred = extract_answer(response, options)
-        is_correct = pred == gt
+        # 多选比对: 标准答案 "BCDE" 和提取答案按集合比较 (顺序无关)
+        is_correct = bool(pred) and set(pred) == set(gt)
         if is_correct:
             correct += 1
 
