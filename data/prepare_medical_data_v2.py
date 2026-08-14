@@ -75,35 +75,44 @@ def load_shibing624(total_medical):
 
 
 def load_cmb(total_cmb):
-    """加载 CMB 医学选择题，混合 answer-only 和 CoT 格式"""
+    """加载 CMB 医学选择题，直接下载原始 JSON 绕过 HF dataset builder 的 schema bug"""
     print("\n[2/4] 加载 FreedomIntelligence/CMB (医学选择题) ...")
-    ds = load_dataset("FreedomIntelligence/CMB", "CMB-Exam")
-    print(f"  可用 splits: {list(ds.keys())}")
 
     # CMB-val 有详细解析 → CoT 格式
-    cot_items = []
-    val_split = None
-    for name in ["validation", "val", "test"]:
-        if name in ds:
-            val_split = ds[name]
-            break
+    print("  下载 CMB-val ...")
+    val_file = hf_hub_download(
+        repo_id="FreedomIntelligence/CMB",
+        filename="CMB-Exam/CMB-val/CMB-val-merge.json",
+        repo_type="dataset",
+    )
+    with open(val_file, encoding="utf-8") as f:
+        val_data = json.load(f)
+    print(f"  CMB-val 原始: {len(val_data)} 条")
 
-    if val_split is not None:
-        for row in val_split:
-            item = _parse_cmb_row(row, cot=True)
-            if item:
-                cot_items.append(item)
-        print(f"  CMB-val (CoT格式): {len(cot_items)} 条")
+    cot_items = []
+    for row in val_data:
+        item = _parse_cmb_row(row, cot=True)
+        if item:
+            cot_items.append(item)
+    print(f"  CMB-val (CoT格式): {len(cot_items)} 条")
 
     # CMB-train 无解析 → answer-only 格式
-    train_split = ds["train"] if "train" in ds else None
+    print("  下载 CMB-train (148MB, 可能需要几分钟) ...")
+    train_file = hf_hub_download(
+        repo_id="FreedomIntelligence/CMB",
+        filename="CMB-Exam/CMB-train/CMB-train-merge.json",
+        repo_type="dataset",
+    )
+    with open(train_file, encoding="utf-8") as f:
+        train_data = json.load(f)
+    print(f"  CMB-train 原始: {len(train_data)} 条")
+
     answer_only_items = []
-    if train_split is not None:
-        for row in train_split:
-            item = _parse_cmb_row(row, cot=False)
-            if item:
-                answer_only_items.append(item)
-        print(f"  CMB-train (answer-only): {len(answer_only_items)} 条")
+    for row in train_data:
+        item = _parse_cmb_row(row, cot=False)
+        if item:
+            answer_only_items.append(item)
+    print(f"  CMB-train (answer-only): {len(answer_only_items)} 条")
 
     # 分配: val 全部用上, 剩余从 train 抽样
     remaining = max(0, total_cmb - len(cot_items))
@@ -119,6 +128,12 @@ def _parse_cmb_row(row, cot=False):
     answer = row.get("answer") or ""
     options = row.get("option") or {}
     q_type = row.get("question_type") or ""
+
+    if isinstance(options, str):
+        try:
+            options = json.loads(options)
+        except json.JSONDecodeError:
+            return None
 
     if not question or not answer or not options:
         return None
