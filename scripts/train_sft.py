@@ -14,6 +14,7 @@
 """
 import argparse
 import json
+import os
 
 import torch
 from datasets import Dataset
@@ -22,9 +23,8 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    TrainingArguments,
 )
-from trl import SFTTrainer
+from trl import SFTTrainer, SFTConfig
 
 
 def load_data(path):
@@ -113,8 +113,8 @@ def main():
     )
     print(f"训练样本: {len(dataset)} 条")
 
-    # 训练参数
-    training_args = TrainingArguments(
+    # 训练参数 (TRL 1.x: SFTConfig 继承自 TrainingArguments, 并含 SFT 专用参数)
+    training_args = SFTConfig(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
         learning_rate=args.lr,
@@ -130,32 +130,41 @@ def main():
         warmup_steps=0.03,  # transformers v5 已移除 warmup_ratio, warmup_steps 接受小数表示比例
         gradient_checkpointing=True,
         max_grad_norm=1.0,
+        max_length=args.max_len,  # TRL 1.x: 长度参数在 SFTConfig 中
+        dataset_text_field="text",
+        packing=False,
     )
 
     trainer = SFTTrainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
-        tokenizer=tokenizer,
-        max_seq_length=args.max_len,
-        dataset_text_field="text",
-        packing=False,
+        processing_class=tokenizer,  # TRL>=0.14 已把 tokenizer 参数改名为 processing_class
+        peft_config=lora_config,  # peft_config 直接传给 SFTTrainer
     )
 
     print("开始 SFT 训练 ...")
+
+    # 显式初始化 SwanLab Run (transformers v5 的 swanlab 集成需要先 init)
+    if args.report_to == "swanlab":
+        import swanlab
+        # 移除可能冲突的环境变量 (SwanLab pydantic-settings 会尝试 JSON 解析 SWANLAB_PROJECT)
+        os.environ.pop("SWANLAB_PROJECT", None)
+        os.environ.pop("SWANLAB_WORKSPACE", None)
+        swanlab.init(
+            project="med-rlhf",
+            workspace="ookkiou",
+        )
+
     trainer.train()
 
     # 保存 adapter
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
-    print(f"LoRA adapter 已保存: {args.output_dir}")
 
-    # merge adapter 到基础模型 (供 vLLM 直接加载评测)
-    print("合并 LoRA adapter 到基础模型 ...")
-    model = model.merge_and_unload()
-    model.save_pretrained(args.output_dir, safe_serialization=True)
-    tokenizer.save_pretrained(args.output_dir)
-    print(f"完整模型已保存: {args.output_dir}")
+    # 4bit 量化模型无法直接 merge, 需用独立脚本 merge_lora.py 合并
+    print(f"LoRA adapter 已保存: {args.output_dir}")
+    print("如需合并为完整模型, 请运行: python scripts/merge_lora.py")
 
 
 if __name__ == "__main__":
