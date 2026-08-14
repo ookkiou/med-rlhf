@@ -1,5 +1,7 @@
 """
-SFT 数据准备 v2: 四源混合，兼顾通用医学能力和选择题考试能力
+SFT 数据准备 v2: 四源混合 + 去重 + 质量过滤
+
+核心理念: 质量优先于数量，5k-10k 高质量多样数据 > 30k 重复模板数据
 
 数据来源:
   1. shibing624/medical (240万条) → 医疗问答/对话/百科/安全 (~55%)
@@ -7,16 +9,16 @@ SFT 数据准备 v2: 四源混合，兼顾通用医学能力和选择题考试�
   3. FreedomIntelligence/medical-o1-reasoning-SFT (9万条) → 医疗 CoT 推理 (~22%)
   4. llamafactory/alpaca_zh (5万条) → 通用指令防遗忘 (~5%)
 
-选择题数据格式:
-  - CMB-train (无解析): output = "答案：A"
-  - CMB-val (有解析): output = "{解析}\n\n答案：A"
+处理流程:
+  原始数据 → 质量过滤 → 去重 → 按比例抽样 → 混合 shuffle → 输出
 
 输出格式: JSONL, 每行 {instruction, input, output}
 
 用法:
-    python data/prepare_medical_data_v2.py --total 50000 --out data/sft_medical_v2.jsonl
+    python data/prepare_medical_data_v2.py --total 10000 --out data/sft_medical_v2.jsonl
 """
 import argparse
+import hashlib
 import json
 import random
 from collections import defaultdict
@@ -26,6 +28,43 @@ from huggingface_hub import hf_hub_download
 
 SAFETY_KW = ["自杀", "自残", "过量", "处方", "用药", "剂量", "诊断自己", "怎么办", "治疗建议"]
 ENCY_KW = ["什么是", "定义", "概述", "分类", "病因", "发病机制", "百科", "教材", "解剖", "生理"]
+
+MIN_INSTRUCTION_LEN = 10
+MIN_OUTPUT_LEN = 5
+MAX_OUTPUT_LEN = 2048
+DEDUP_PREFIX_LEN = 50
+
+
+def quality_filter(item):
+    """过滤低质量样本: 太短/太长/空值"""
+    inst = (item.get("instruction") or "").strip()
+    out = (item.get("output") or "").strip()
+    if len(inst) < MIN_INSTRUCTION_LEN:
+        return None
+    if len(out) < MIN_OUTPUT_LEN or len(out) > MAX_OUTPUT_LEN:
+        return None
+    return {"instruction": inst, "input": (item.get("input") or "").strip(), "output": out}
+
+
+def dedup(items):
+    """去重: 精确匹配 + 前 N 字符指纹近似去重"""
+    seen_exact = set()
+    seen_prefix = set()
+    result = []
+    removed = 0
+    for item in items:
+        inst = item["instruction"]
+        if inst in seen_exact:
+            removed += 1
+            continue
+        prefix = inst[:DEDUP_PREFIX_LEN].strip()
+        if prefix in seen_prefix:
+            removed += 1
+            continue
+        seen_exact.add(inst)
+        seen_prefix.add(prefix)
+        result.append(item)
+    return result, removed
 
 
 def classify(item):
@@ -54,11 +93,20 @@ def load_shibing624(total_medical):
             f.seek(0)
             data = [json.loads(line) for line in f if line.strip()]
 
-    data = [x for x in data if (x.get("instruction") or x.get("input")) and x.get("output")]
-    print(f"  过滤后: {len(data)} 条")
+    print(f"  原始: {len(data)} 条")
+
+    filtered = []
+    for x in data:
+        item = quality_filter(x)
+        if item:
+            filtered.append(item)
+    print(f"  质量过滤后: {len(filtered)} 条")
+
+    filtered, removed = dedup(filtered)
+    print(f"  去重后: {len(filtered)} 条 (移除 {removed} 条重复)")
 
     groups = defaultdict(list)
-    for item in data:
+    for item in filtered:
         groups[classify(item)].append(item)
 
     ratios = {"qa": 0.5, "dialog": 0.25, "encyclopedia": 0.15, "safety": 0.1}
@@ -78,7 +126,6 @@ def load_cmb(total_cmb):
     """加载 CMB 医学选择题，直接下载原始 JSON 绕过 HF dataset builder 的 schema bug"""
     print("\n[2/4] 加载 FreedomIntelligence/CMB (医学选择题) ...")
 
-    # CMB-val 有详细解析 → CoT 格式
     print("  下载 CMB-val ...")
     val_file = hf_hub_download(
         repo_id="FreedomIntelligence/CMB",
@@ -94,9 +141,9 @@ def load_cmb(total_cmb):
         item = _parse_cmb_row(row, cot=True)
         if item:
             cot_items.append(item)
-    print(f"  CMB-val (CoT格式): {len(cot_items)} 条")
+    cot_items, removed = dedup(cot_items)
+    print(f"  CMB-val (CoT格式): {len(cot_items)} 条 (去重 {removed})")
 
-    # CMB-train 无解析 → answer-only 格式
     print("  下载 CMB-train (148MB, 可能需要几分钟) ...")
     train_file = hf_hub_download(
         repo_id="FreedomIntelligence/CMB",
@@ -112,9 +159,9 @@ def load_cmb(total_cmb):
         item = _parse_cmb_row(row, cot=False)
         if item:
             answer_only_items.append(item)
-    print(f"  CMB-train (answer-only): {len(answer_only_items)} 条")
+    answer_only_items, removed = dedup(answer_only_items)
+    print(f"  CMB-train (answer-only): {len(answer_only_items)} 条 (去重 {removed})")
 
-    # 分配: val 全部用上, 剩余从 train 抽样
     remaining = max(0, total_cmb - len(cot_items))
     n_train = min(remaining, len(answer_only_items))
     sampled = cot_items + random.sample(answer_only_items, n_train)
@@ -165,7 +212,7 @@ def _parse_cmb_row(row, cot=False):
         )
         output = f"答案：{answer}"
 
-    return {"instruction": instruction, "input": "", "output": output}
+    return quality_filter({"instruction": instruction, "input": "", "output": output})
 
 
 def load_huatuogpt_cot(total_cot):
@@ -182,7 +229,12 @@ def load_huatuogpt_cot(total_cot):
         if not question or not response:
             continue
         output = f"{cot}\n\n{response}" if cot else response
-        items.append({"instruction": question, "input": "", "output": output})
+        item = quality_filter({"instruction": question, "input": "", "output": output})
+        if item:
+            items.append(item)
+
+    items, removed = dedup(items)
+    print(f"  去重后: {len(items)} 条 (移除 {removed})")
 
     n = min(total_cot, len(items))
     sampled = random.sample(items, n)
@@ -201,9 +253,12 @@ def load_general_instructions(total_general):
         inst = row.get("instruction") or ""
         inp = row.get("input") or ""
         out = row.get("output") or ""
-        if not inst or not out:
-            continue
-        items.append({"instruction": inst, "input": inp, "output": out})
+        item = quality_filter({"instruction": inst, "input": inp, "output": out})
+        if item:
+            items.append(item)
+
+    items, removed = dedup(items)
+    print(f"  去重后: {len(items)} 条 (移除 {removed})")
 
     n = min(total_general, len(items))
     sampled = random.sample(items, n)
@@ -213,7 +268,7 @@ def load_general_instructions(total_general):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--total", type=int, default=50000, help="总抽样数")
+    parser.add_argument("--total", type=int, default=10000, help="总抽样数")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", default="data/sft_medical_v2.jsonl")
     parser.add_argument("--sample-check", type=int, default=50, help="抽检条数")
@@ -238,9 +293,12 @@ def main():
     general_data = load_general_instructions(total_general)
 
     all_data = qa_data + cmb_data + cot_data + general_data
+
+    all_data, final_removed = dedup(all_data)
+    print(f"\n  跨源去重: 移除 {final_removed} 条")
     random.shuffle(all_data)
 
-    print(f"\n=== 总计: {len(all_data)} 条 ===")
+    print(f"=== 最终: {len(all_data)} 条 ===")
 
     with open(args.out, "w", encoding="utf-8") as f:
         for item in all_data:
