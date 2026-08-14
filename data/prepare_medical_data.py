@@ -55,7 +55,16 @@ def main():
         repo_type="dataset",
     )
     with open(local, encoding="utf-8") as f:
-        data = json.load(f)
+        if local.endswith(".jsonl"):
+            data = [json.loads(line) for line in f if line.strip()]
+        else:
+            # shibing624/medical 的 train_zh_0.json 实际是 JSONL 格式(每行一个对象)
+            # 尝试按单个 JSON 数组解析, 失败则回退到逐行解析
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError:
+                f.seek(0)
+                data = [json.loads(line) for line in f if line.strip()]
     print(f"原始数据: {len(data)} 条")
 
     # 过滤空数据
