@@ -127,7 +127,7 @@ def main():
         report_to=args.report_to,
         optim="paged_adamw_8bit",
         lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
+        warmup_steps=0.03,  # transformers v5 已移除 warmup_ratio, warmup_steps 接受小数表示比例
         gradient_checkpointing=True,
         max_grad_norm=1.0,
     )
