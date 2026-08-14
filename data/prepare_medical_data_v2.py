@@ -77,7 +77,7 @@ def load_shibing624(total_medical):
 def load_cmb(total_cmb):
     """加载 CMB 医学选择题，混合 answer-only 和 CoT 格式"""
     print("\n[2/4] 加载 FreedomIntelligence/CMB (医学选择题) ...")
-    ds = load_dataset("FreedomIntelligence/CMB", "exam")
+    ds = load_dataset("FreedomIntelligence/CMB", "CMB-Exam")
     print(f"  可用 splits: {list(ds.keys())}")
 
     # CMB-val 有详细解析 → CoT 格式

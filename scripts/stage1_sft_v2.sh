@@ -14,6 +14,7 @@ python scripts/train_sft.py \
     --data data/sft_medical_v2.jsonl \
     --output_dir out/sft_medical_v2 \
     --epochs 1 --lr 1e-4 --r 32 --alpha 64 \
+    --batch-size 4 --grad-accum 16 \
     --max-len 2048 --report-to swanlab
 
 # 3. 评测 SFT checkpoint
