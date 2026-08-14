@@ -430,6 +430,86 @@ def run_vllm_inference(model_path, prompts, chat_template=False, max_new_tokens=
     return results
 
 
+def run_transformers_inference(model_path, prompts, chat_template=False, max_new_tokens=64):
+    """使用纯 transformers 进行批量推理 (不依赖 vLLM)
+
+    当 vLLM 与 torch 版本不兼容时使用此后端。
+    速度比 vLLM 慢, 但兼容性最好。
+    """
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    print(f"加载模型 (transformers 后端): {model_path}")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+        trust_remote_code=True,
+    )
+    model.eval()
+
+    # 确定 EOS token
+    eos_token_id = tokenizer.eos_token_id
+    # 生成时的停止 token
+    stop_strings = ["\n\n", "问：", "问:"]
+    stop_token_ids = []
+    for s in stop_strings:
+        ids = tokenizer.encode(s, add_special_tokens=False)
+        if ids:
+            stop_token_ids.append(ids[-1])
+    if eos_token_id is not None:
+        stop_token_ids.append(eos_token_id)
+
+    results = []
+    total = len(prompts)
+
+    with torch.no_grad():
+        for i, prompt in enumerate(prompts):
+            if chat_template:
+                messages = [{"role": "user", "content": prompt}]
+                text = tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, tokenize=False
+                )
+            else:
+                text = prompt
+
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=2048)
+            inputs = {k: v.to(model.device) for k, v in inputs.items()}
+
+            # 逐 token 生成, 遇到停止 token 就停
+            output_ids = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                temperature=1.0,
+                pad_token_id=eos_token_id,
+                eos_token_id=list(set(stop_token_ids)) if stop_token_ids else None,
+            )
+
+            # 只取新生成的 token
+            input_len = inputs["input_ids"].shape[1]
+            generated_ids = output_ids[0][input_len:]
+            generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+            # 去掉停止字符串之后的内容
+            for stop_str in stop_strings:
+                if stop_str in generated_text:
+                    generated_text = generated_text[:generated_text.index(stop_str)]
+
+            results.append(generated_text.strip())
+
+            if (i + 1) % 20 == 0 or i + 1 == total:
+                print(f"  进度: {i + 1}/{total}")
+
+    # 释放显存
+    del model
+    torch.cuda.empty_cache()
+
+    return results
+
+
 # ============================================================
 # 评测主流程
 # ============================================================
@@ -443,6 +523,7 @@ def evaluate(
     out_path=None,
     sample_size=None,
     split="val",
+    backend="auto",
 ):
     """评测主流程"""
     # 1. 加载数据
@@ -477,11 +558,26 @@ def evaluate(
         prompts.append(prompt)
         ground_truth.append(item.get("answer", ""))
 
-    # 3. vLLM 推理
+    # 3. 推理
     print(f"\n开始推理...")
-    responses = run_vllm_inference(
-        model_path, prompts, chat_template=chat_template, max_new_tokens=max_new_tokens
-    )
+    responses = None
+
+    if backend in ("auto", "vllm"):
+        try:
+            responses = run_vllm_inference(
+                model_path, prompts, chat_template=chat_template, max_new_tokens=max_new_tokens
+            )
+        except Exception as e:
+            print(f"\n  vLLM 推理失败: {e}")
+            if backend == "vllm":
+                raise
+            print(f"  自动回退到 transformers 后端 (较慢但兼容)...\n")
+            responses = None
+
+    if responses is None:
+        responses = run_transformers_inference(
+            model_path, prompts, chat_template=chat_template, max_new_tokens=max_new_tokens
+        )
 
     # 4. 提取答案并计算准确率
     print(f"\n提取答案...")
@@ -575,6 +671,11 @@ def main():
         "--split", type=str, default="val",
         help="CMB 数据集 split (val 有答案, test 用于排行榜提交)"
     )
+    parser.add_argument(
+        "--backend", type=str, default="auto",
+        choices=["auto", "vllm", "transformers"],
+        help="推理后端: auto (默认, 先试vLLM失败回退transformers), vllm, transformers"
+    )
 
     args = parser.parse_args()
 
@@ -587,6 +688,7 @@ def main():
         out_path=args.out,
         sample_size=args.sample_size,
         split=args.split,
+        backend=args.backend,
     )
 
 
