@@ -250,7 +250,7 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="只评测前 N 题 (调试用)")
     parser.add_argument("--judge-model", default=DEEPSEEK_MODEL)
     parser.add_argument("--api-key", default=None)
-    parser.add_argument("--skip-chbench", action="store_true", help="跳过 CHBench 评测")
+    parser.add_argument("--chbench-only", action="store_true", help="只用 CHBench 评测")
     args = parser.parse_args()
 
     api_key = args.api_key or os.environ.get("DEEPSEEK_API_KEY")
@@ -261,10 +261,17 @@ def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # 加载数据
-    questions = load_high_risk(PROJECT_ROOT / args.high_risk_data)
-    print(f"高风险问题: {len(questions)} 题")
+    if args.chbench_only:
+        chbench_path = PROJECT_ROOT / args.chbench_data
+        if not chbench_path.exists():
+            print(f"✗ CHBench 目录不存在: {chbench_path}")
+            sys.exit(1)
+        questions = load_chbench(chbench_path)
+        print(f"CHBench 问题: {len(questions)} 题 (只用 CHBench)")
+    else:
+        questions = load_high_risk(PROJECT_ROOT / args.high_risk_data)
+        print(f"高风险问题: {len(questions)} 题")
 
-    if not args.skip_chbench:
         chbench_path = PROJECT_ROOT / args.chbench_data
         if chbench_path.exists():
             chbench = load_chbench(chbench_path)

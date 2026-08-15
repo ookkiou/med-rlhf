@@ -60,14 +60,14 @@ echo "  --- SFT 模型 (DPO 前) ---"
 python evaluate/evaluate_safety.py \
     --model "$MODEL" \
     --chbench-data data/chbench \
-    --high-risk-data data/safety_eval.jsonl \
-    --out results/sft_safety.json
+    --chbench-only \
+    --out results/sft_v3_safety.json
 
 echo "  --- DPO 模型 (DPO 后) ---"
 python evaluate/evaluate_safety.py \
     --model "$MERGED" \
     --chbench-data data/chbench \
-    --high-risk-data data/safety_eval.jsonl \
+    --chbench-only \
     --out results/dpo_safety.json
 
 echo ""
