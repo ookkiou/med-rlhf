@@ -194,7 +194,55 @@ def cmd_prepare(n, seed):
 # generate: 用待评测模型生成回答
 # ============================================================
 
-def cmd_generate(model_path, tag, max_new_tokens):
+def _gen_prompts(qs):
+    """把所有题的 prompt 都构造好 (复用 tokenizer 一次)"""
+    print("构造 prompts...")
+    prompts = []
+    for q in qs:
+        messages = [{"role": "user", "content": GEN_PROMPT.format(question=q["question"])}]
+        prompts.append(messages)
+    return prompts
+
+
+def cmd_generate_vllm(model_path, tag, max_new_tokens, todo):
+    """用 vLLM 批量生成 (快, 但需要 vLLM 与 torch 兼容)"""
+    from vllm import LLM, SamplingParams
+
+    print(f"加载模型 (vLLM 后端): {model_path}")
+    llm = LLM(
+        model=model_path,
+        dtype="bfloat16",
+        trust_remote_code=True,
+        limit_mm_per_prompt={"image": 0},
+    )
+    sampler = SamplingParams(
+        temperature=0.0,
+        max_tokens=max_new_tokens,
+    )
+
+    prompts = _gen_prompts(todo)
+    out_path = RESULTS_DIR / f"cmedqa_gen_{tag}.jsonl"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    done = {}
+    with open(out_path, "a", encoding="utf-8") as f:
+        # vLLM 支持批量, 每次 32 条
+        B = 32
+        for start in range(0, len(prompts), B):
+            batch = prompts[start:start + B]
+            qs = todo[start:start + B]
+            outputs = llm.chat(batch, sampler)
+            for q, out in zip(qs, outputs):
+                gen = out.outputs[0].text.strip()
+                done[q["qid"]] = {"qid": q["qid"], "model_answer_text": gen}
+                f.write(json.dumps(done[q["qid"]], ensure_ascii=False) + "\n")
+            f.flush()
+            print(f"  进度: {min(start + B, len(prompts))}/{len(prompts)}")
+
+    print(f"生成结果已保存: {out_path}")
+
+
+def cmd_generate(model_path, tag, max_new_tokens, backend):
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -212,41 +260,50 @@ def cmd_generate(model_path, tag, max_new_tokens):
     todo = [q for q in eval_set if q["qid"] not in done or not done[q["qid"]]["model_answer_text"]]
     print(f"待生成: {len(todo)}/{len(eval_set)} (已完成 {len(done)})")
 
-    if todo:
-        print(f"加载模型 (transformers 后端): {model_path}")
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True,
-        )
-        model.eval()
-        pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+    if not todo:
+        print(f"生成结果已保存: {out_path}")
+        return
 
-        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "a", encoding="utf-8") as f:
-            for i, q in enumerate(todo):
-                messages = [{"role": "user", "content": GEN_PROMPT.format(question=q["question"])}]
-                text = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=2048)
-                inputs = {k: v.to(model.device) for k, v in inputs.items()}
-                with torch.no_grad():
-                    out_ids = model.generate(
-                        **inputs,
-                        max_new_tokens=max_new_tokens,
-                        do_sample=False,
-                        pad_token_id=pad_id,
-                    )
-                gen = tokenizer.decode(out_ids[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-                done[q["qid"]] = {"qid": q["qid"], "model_answer_text": gen.strip()}
-                f.write(json.dumps(done[q["qid"]], ensure_ascii=False) + "\n")
-                f.flush()
-                if (i + 1) % 20 == 0 or i + 1 == len(todo):
-                    print(f"  进度: {i + 1}/{len(todo)}")
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-        del model
-        torch.cuda.empty_cache()
+    if backend == "vllm":
+        cmd_generate_vllm(model_path, tag, max_new_tokens, todo)
+        return
+
+    # transformers 后端 (逐条)
+    print(f"加载模型 (transformers 后端): {model_path}")
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+        trust_remote_code=True,
+    )
+    model.eval()
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+    with open(out_path, "a", encoding="utf-8") as f:
+        for i, q in enumerate(todo):
+            messages = [{"role": "user", "content": GEN_PROMPT.format(question=q["question"])}]
+            text = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=2048)
+            inputs = {k: v.to(model.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                out_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=pad_id,
+                )
+            gen = tokenizer.decode(out_ids[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+            done[q["qid"]] = {"qid": q["qid"], "model_answer_text": gen.strip()}
+            f.write(json.dumps(done[q["qid"]], ensure_ascii=False) + "\n")
+            f.flush()
+            if (i + 1) % 20 == 0 or i + 1 == len(todo):
+                print(f"  进度: {i + 1}/{len(todo)}")
+
+    del model
+    torch.cuda.empty_cache()
 
     print(f"生成结果已保存: {out_path}")
 
@@ -446,6 +503,9 @@ def main():
     p_gen.add_argument("--model", required=True)
     p_gen.add_argument("--tag", required=True, help="输出标记, 如 base / sft_v3")
     p_gen.add_argument("--max-new-tokens", type=int, default=512)
+    p_gen.add_argument("--backend", type=str, default="transformers",
+                       choices=["transformers", "vllm"],
+                       help="推理后端: transformers (默认, 通用) 或 vllm (快, 需兼容)")
 
     p_judge = sub.add_parser("judge", help="DeepSeek 两两对比评判")
     p_judge.add_argument("--base-tag", required=True)
@@ -459,7 +519,7 @@ def main():
     if args.cmd == "prepare":
         cmd_prepare(args.n, args.seed)
     elif args.cmd == "generate":
-        cmd_generate(args.model, args.tag, args.max_new_tokens)
+        cmd_generate(args.model, args.tag, args.max_new_tokens, args.backend)
     elif args.cmd == "judge":
         import os
         key = args.api_key or os.environ.get("DEEPSEEK_API_KEY")
