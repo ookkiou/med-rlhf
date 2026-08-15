@@ -126,12 +126,18 @@ def cmd_prepare(n, seed):
     questions = read_csv_flexible(q_csv)
     qid_col = pick_col(questions[0].keys(), ["qid", "question_id", "q_id", "id"])
     content_col = pick_col(questions[0].keys(), ["content", "question", "title", "text"])
+    if not (qid_col and content_col):
+        print(f"  ✗ question.csv 字段不匹配, 实际表头: {list(questions[0].keys())}")
+        sys.exit(1)
     print(f"  问题 {len(questions)} 条, 字段: qid={qid_col}, content={content_col}")
 
     # 回答表: qid -> 最长回答 (作为参考答案)
     answers = read_csv_flexible(a_csv)
     a_qid_col = pick_col(answers[0].keys(), ["qid", "question_id", "q_id"])
     a_content_col = pick_col(answers[0].keys(), ["content", "answer", "text"])
+    if not (a_qid_col and a_content_col):
+        print(f"  ✗ answer.csv 字段不匹配, 实际表头: {list(answers[0].keys())}")
+        sys.exit(1)
     print(f"  回答 {len(answers)} 条, 字段: qid={a_qid_col}, content={a_content_col}")
 
     ref_by_qid = {}
@@ -143,12 +149,15 @@ def cmd_prepare(n, seed):
             if len(content) > len(cur):
                 ref_by_qid[qid] = content
 
-    # 测试集 qid 集合
+    # 测试集 qid 集合 (跳过表头行)
     test_qids = set()
     if c_txt and c_txt.exists():
         with open(c_txt, "r", encoding="utf-8") as f:
             for line in f:
-                parts = line.strip().split()
+                line = line.strip()
+                if not line or line.startswith("question_id"):
+                    continue
+                parts = line.replace(",", " ").split()
                 if parts:
                     test_qids.add(parts[0])
         print(f"  测试集 qid: {len(test_qids)} 个")
