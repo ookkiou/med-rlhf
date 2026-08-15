@@ -202,6 +202,47 @@ def load_cmexam(data_path=None):
     return data
 
 
+MMLU_MED_SUBJECTS = [
+    "anatomy",              # 解剖学
+    "clinical_knowledge",   # 临床知识
+    "college_biology",      # 大学生物
+    "college_medicine",     # 大学医学
+    "medical_genetics",     # 医学遗传学
+    "professional_medicine",# 职业医学
+    "virology",             # 病毒学
+    "nutrition",            # 营养学
+]
+
+
+def load_mmlu_med(subjects=None, split="test"):
+    """
+    加载 MMLU 医学相关子集 (HuggingFace: cais/mmlu)
+
+    共 8 个子集 test split 合计约 1500+ 题, 英文 4 选 1。
+    用途: 检验中文医疗 SFT 后通用医学能力是否回退 (预期持平, 非提升指标)。
+    """
+    from datasets import load_dataset
+
+    if subjects is None:
+        subjects = MMLU_MED_SUBJECTS
+
+    data = []
+    for subj in subjects:
+        ds = load_dataset("cais/mmlu", subj, split=split)
+        letters = "ABCD"
+        for row in ds:
+            data.append({
+                "question": row["question"],
+                "options": {letters[i]: c for i, c in enumerate(row["choices"])},
+                "answer": letters[row["answer"]],
+                "subject": subj,
+            })
+        print(f"  {subj}: {len(ds)} 题")
+
+    print(f"  加载 {len(data)} 条数据 (MMLU 医学子集 x {len(subjects)})")
+    return data
+
+
 # ============================================================
 # Prompt 构造
 # ============================================================
@@ -316,6 +357,21 @@ def build_cmexam_prompt(item):
         )
 
     return prompt
+
+
+def build_mmlu_prompt(item):
+    """构造 MMLU 英文医学选择题 prompt (0-shot, 要求只输出字母)"""
+    item = dict(item) if hasattr(item, "items") else item
+    question = item.get("question", "")
+    options = item.get("options", {})
+    option_text = "\n".join(f"{k}. {v}" for k, v in sorted(options.items()))
+    return (
+        "The following is a multiple choice question about medical knowledge. "
+        "Answer with the option letter only, no explanation.\n\n"
+        f"{question}\n"
+        f"{option_text}\n"
+        f"Answer: "
+    )
 
 
 # ============================================================
@@ -535,6 +591,9 @@ def evaluate(
         if data is None:
             return None
         build_prompt = build_cmexam_prompt
+    elif benchmark == "mmlu_med":
+        data = load_mmlu_med()
+        build_prompt = build_mmlu_prompt
     else:
         print(f"未知 benchmark: {benchmark}")
         return None
@@ -542,7 +601,12 @@ def evaluate(
     # 采样
     if sample_size and sample_size < len(data):
         print(f"采样 {sample_size} 条用于快速测试...")
-        if hasattr(data, "select"):
+        if benchmark == "mmlu_med":
+            # MMLU 是多个子集聚合, 用随机采样保证子集覆盖 (固定 seed 可复现)
+            import random as _random
+            _random.seed(42)
+            data = _random.sample(list(data), sample_size)
+        elif hasattr(data, "select"):
             data = data.select(range(sample_size))
         else:
             data = data[:sample_size]
@@ -643,7 +707,7 @@ def main():
     parser.add_argument(
         "--benchmark",
         type=str,
-        choices=["cmb", "cmexam"],
+        choices=["cmb", "cmexam", "mmlu_med"],
         required=True,
         help="评测基准",
     )
