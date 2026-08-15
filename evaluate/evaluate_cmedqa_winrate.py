@@ -45,13 +45,7 @@ DATA_DIR = PROJECT_ROOT / "data" / "cmedqa2"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 GITHUB_RAW = "https://raw.githubusercontent.com/zhangsheng93/cMedQA2/master"
-# 多个国内加速镜像 (按顺序尝试, 优先用 wget/curl 支持断点续传)
-GITHUB_PROXIES = [
-    "https://ghproxy.net/https://raw.githubusercontent.com/zhangsheng93/cMedQA2/master",
-    "https://gh-proxy.com/https://raw.githubusercontent.com/zhangsheng93/cMedQA2/master",
-    "https://ghfast.top/https://raw.githubusercontent.com/zhangsheng93/cMedQA2/master",
-    "https://github.moeyy.xyz/https://raw.githubusercontent.com/zhangsheng93/cMedQA2/master",
-]
+GITHUB_PROXY = "https://ghproxy.net/https://raw.githubusercontent.com/zhangsheng93/cMedQA2/master"
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-chat"
@@ -66,42 +60,22 @@ GEN_PROMPT = (
 # prepare: 下载数据 + 构造评测集
 # ============================================================
 
-def _download_with_wget(url, dest):
-    """用 wget 下载 (支持断点续传, 超时, 静默进度)"""
-    import shutil
-    import subprocess
-
-    if shutil.which("wget"):
-        return subprocess.call(
-            ["wget", "-c", "-q", "--show-progress", "-T", "60", "-O", str(dest), url]
-        ) == 0
-    if shutil.which("curl"):
-        return subprocess.call(
-            ["curl", "-L", "-C", "-", "--connect-timeout", "60", "-o", str(dest), url]
-        ) == 0
-    return False
-
-
 def download_repo_file(filename, dest_dir):
-    """从 cMedQA2 仓库下载文件, 依次尝试直连 + 多个国内镜像"""
+    """从 cMedQA2 仓库下载文件, 主链接失败自动走镜像"""
     dest = dest_dir / filename
-    if dest.exists() and dest.stat().st_size > 0:
+    if dest.exists():
         print(f"  已存在, 跳过下载: {filename}")
         return dest
     dest_dir.mkdir(parents=True, exist_ok=True)
-
-    # 先尝试直连 (可能快), 失败再走镜像
-    urls = [f"{GITHUB_RAW}/{filename}"] + [f"{p}/{filename}" for p in GITHUB_PROXIES]
-    for url in urls:
-        print(f"  下载: {url}")
+    for base_url in (GITHUB_RAW, GITHUB_PROXY):
         try:
-            if _download_with_wget(url, dest):
-                if dest.stat().st_size > 0:
-                    print(f"  ✓ 完成: {dest.stat().st_size/1024/1024:.1f} MB")
-                    return dest
+            url = f"{base_url}/{filename}"
+            print(f"  下载: {url}")
+            urllib.request.urlretrieve(url, dest)
+            return dest
         except Exception as e:
             print(f"  失败: {e}")
-    print(f"  ✗ 全部下载源失败, 请手动下载 {filename} 放到 {dest_dir}/")
+    print(f"  ✗ 请手动下载 {filename} 放到 {dest_dir}/")
     return None
 
 
