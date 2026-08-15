@@ -64,8 +64,6 @@ def main():
                         help="LoRA alpha")
     parser.add_argument("--max-len", type=int, default=1024,
                         help="最大序列长度 (DPO 数据较短, 1024 够用)")
-    parser.add_argument("--max-prompt-len", type=int, default=256,
-                        help="最大 prompt 长度")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--grad-accum", type=int, default=16)
     parser.add_argument("--report-to", default="swanlab")
@@ -128,7 +126,6 @@ def main():
         max_grad_norm=1.0,
         beta=args.beta,
         max_length=args.max_len,
-        max_prompt_length=args.max_prompt_len,
     )
 
     # SwanLab 初始化
