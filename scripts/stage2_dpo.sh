@@ -5,8 +5,8 @@
 
 set -e
 
-MODEL="out/sft_medical_v2_merged"
-DATA="data/dpo_train.jsonl"
+MODEL="/root/autodl-tmp/med-rlhf/out/sft_medical_v3_merged"
+DATA="data/dpo_all.jsonl"
 OUTPUT="out/dpo_medical"
 MERGED="out/dpo_medical_merged"
 
